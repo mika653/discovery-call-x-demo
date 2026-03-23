@@ -2,16 +2,20 @@ import { create } from "zustand";
 import { FormAnswers, Submission, SubmissionSummary, LeadStatus, Question } from "@/types";
 import { TenantConfig } from "@/types/tenant";
 import { generateSummary } from "@/lib/recommendations";
-const addTenantSubmission = (slug: string, submission: Submission) =>
-  import("@/lib/tenant-firestore").then((m) => m.addTenantSubmission(slug, submission));
-const getTenantSubmissions = (slug: string) =>
-  import("@/lib/tenant-firestore").then((m) => m.getTenantSubmissions(slug));
-const updateTenantSubmissionStatus = (slug: string, id: string, status: LeadStatus) =>
-  import("@/lib/tenant-firestore").then((m) => m.updateTenantSubmissionStatus(slug, id, status));
-const deleteTenantSubmissionDoc = (slug: string, id: string) =>
-  import("@/lib/tenant-firestore").then((m) => m.deleteTenantSubmissionDoc(slug, id));
 import { demoSubmissions } from "@/lib/demo-submissions";
 import { v4 as uuidv4 } from "uuid";
+
+function sanitizeAnswers(answers: FormAnswers): Record<string, unknown> {
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(answers)) {
+    if (Array.isArray(value) && value.length > 0 && value[0] instanceof File) {
+      sanitized[key] = null;
+    } else {
+      sanitized[key] = value;
+    }
+  }
+  return sanitized;
+}
 
 interface TenantFormState {
   tenantSlug: string;
@@ -62,7 +66,6 @@ export const useTenantFormStore = create<TenantFormState>()((set, get) => ({
   isLoadingSubmissions: false,
 
   init: (config) => {
-    // Only reinitialize if slug changed
     if (get().tenantSlug === config.slug && get().tenantQuestions.length > 0) return;
     set({
       tenantSlug: config.slug,
@@ -116,11 +119,24 @@ export const useTenantFormStore = create<TenantFormState>()((set, get) => ({
       currentSubmission: submission,
       isComplete: true,
     });
-    addTenantSubmission(tenantSlug, submission)
-      .then(() => console.log("Tenant submission saved:", submission.id))
-      .catch((err) => {
-        console.error("Failed to save tenant submission:", err);
-      });
+
+    fetch("/api/submissions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        slug: tenantSlug,
+        submission: {
+          ...submission,
+          answers: sanitizeAnswers(submission.answers),
+          tenantSlug,
+        },
+      }),
+    })
+      .then((res) => res.json())
+      .then((result) => {
+        if (!result.success) console.error("API error:", result.error);
+      })
+      .catch((err) => console.error("Failed to save submission:", err));
   },
 
   resetForm: () =>
@@ -135,19 +151,27 @@ export const useTenantFormStore = create<TenantFormState>()((set, get) => ({
     const { tenantSlug } = get();
     set({ isLoadingSubmissions: true });
     try {
-      let submissions = await getTenantSubmissions(tenantSlug);
-      // Seed demo data if the demo tenant has no real submissions
-      if (submissions.length === 0 && tenantSlug === "demo") {
-        submissions = demoSubmissions;
-        // Persist seed data to Firestore in background
+      const res = await fetch(`/api/submissions?slug=${tenantSlug}`);
+      const result = await res.json();
+
+      if (result.success && result.submissions && result.submissions.length > 0) {
+        set({ submissions: result.submissions as Submission[], isLoadingSubmissions: false });
+      } else if (tenantSlug === "demo") {
+        // Seed demo data if empty
+        set({ submissions: demoSubmissions, isLoadingSubmissions: false });
+        // Persist in background
         for (const sub of demoSubmissions) {
-          addTenantSubmission("demo", sub).catch(() => {});
+          fetch("/api/submissions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ slug: "demo", submission: sub }),
+          }).catch(() => {});
         }
+      } else {
+        set({ submissions: [], isLoadingSubmissions: false });
       }
-      set({ submissions, isLoadingSubmissions: false });
     } catch (err) {
-      console.error("Failed to load tenant submissions:", err);
-      // Offline fallback for demo
+      console.error("Failed to load submissions:", err);
       if (tenantSlug === "demo") {
         set({ submissions: demoSubmissions, isLoadingSubmissions: false });
       } else {
@@ -163,9 +187,11 @@ export const useTenantFormStore = create<TenantFormState>()((set, get) => ({
         s.id === id ? { ...s, status } : s
       ),
     }));
-    updateTenantSubmissionStatus(tenantSlug, id, status).catch((err) =>
-      console.error("Failed to update tenant status:", err)
-    );
+    fetch("/api/submissions", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug: tenantSlug, id, status }),
+    }).catch((err) => console.error("Failed to update status:", err));
   },
 
   deleteSubmission: (id) => {
@@ -173,8 +199,10 @@ export const useTenantFormStore = create<TenantFormState>()((set, get) => ({
     set((state) => ({
       submissions: state.submissions.filter((s) => s.id !== id),
     }));
-    deleteTenantSubmissionDoc(tenantSlug, id).catch((err) =>
-      console.error("Failed to delete tenant submission:", err)
-    );
+    fetch("/api/submissions", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug: tenantSlug, id }),
+    }).catch((err) => console.error("Failed to delete submission:", err));
   },
 }));

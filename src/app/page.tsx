@@ -363,9 +363,6 @@ export default function DemoPage() {
             <Link href="/dashboard/demo" className="hover:text-foreground transition-colors">
               Dashboard
             </Link>
-            <Link href="/" className="hover:text-foreground transition-colors">
-              Original
-            </Link>
           </div>
         </div>
       </footer>

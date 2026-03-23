@@ -6,7 +6,6 @@ import { useTenantFormStore } from "@/store/tenantFormStore";
 import { Submission, LeadStatus } from "@/types";
 import { TenantConfig } from "@/types/tenant";
 import { generateProposal, proposalToText } from "@/lib/proposal";
-import { playKaching } from "@/lib/sounds";
 import ProposalPage from "@/components/ProposalPage";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -223,7 +222,6 @@ export default function TenantAdminDashboard({ config }: TenantAdminDashboardPro
                             onClick={(e) => {
                               e.stopPropagation();
                               setProposalSubmission(submission);
-                              playKaching();
                             }}
                             className="text-primary"
                           >
@@ -305,7 +303,6 @@ export default function TenantAdminDashboard({ config }: TenantAdminDashboardPro
                 onClick={() => {
                   setSelectedSubmission(null);
                   setProposalSubmission(selectedSubmission);
-                  playKaching();
                 }}
               >
                 <FileText className="h-4 w-4 mr-2" />
